@@ -1,0 +1,2 @@
+KERNEL=="adc7k/subsystem", MODE="0666"
+KERNEL=="adc7k/board*", MODE="0666"

@@ -5,13 +5,11 @@
 #include <linux/kobject.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
-// #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/slab.h>
-// #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/version.h>
 #include <linux/vmalloc.h>
@@ -36,6 +34,9 @@ MODULE_PARM_DESC(adc7k_subsystem_major, "Major number for ADC7K subsystem device
 
 EXPORT_SYMBOL(adc7k_board_register);
 EXPORT_SYMBOL(adc7k_board_unregister);
+EXPORT_SYMBOL(adc7k_channel_register);
+EXPORT_SYMBOL(adc7k_channel_unregister);
+
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
 	#define CLASS_DEV_CREATE(_class, _devt, _device, _name) device_create(_class, _device, _devt, NULL, "%s", _name)
@@ -77,6 +78,7 @@ struct adc7k_subsystem_private_data {
 };
 
 static struct cdev adc7k_subsystem_cdev;
+static int adc7k_subsystem_cdev_minor_alloc[ADC7K_DEVICE_MAX_COUNT];
 
 static struct adc7k_board *adc7k_board_list[ADC7K_BOARD_MAX_COUNT];
 static DEFINE_MUTEX(adc7k_board_list_lock);
@@ -95,19 +97,16 @@ static int adc7k_subsystem_open(struct inode *inode, struct file *filp)
 		res = -ENOMEM;
 		goto adc7k_subsystem_open_error;
 	}
-// 	memset(private_data, 0, sizeof(struct subsystem_private_data));
 
 	mutex_lock(&adc7k_board_list_lock);
 	len = 0;
 	for (i = 0; i < ADC7K_BOARD_MAX_COUNT; i++) {
 		if (adc7k_board_list[i]) {
-			len += sprintf(private_data->buff+len, "%s %s\r\n", adc7k_board_list[i]->cdev->owner->name,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
-							dev_name(adc7k_board_list[i]->device)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
-							dev_name(adc7k_board_list[i]->device)
+			len += sprintf(private_data->buff + len, "%s %s\r\n", adc7k_board_list[i]->char_device->owner->name,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
+							dev_name(adc7k_board_list[i]->class_device)
 #else
-							adc7k_board_list[i]->device->class_id
+							adc7k_board_list[i]->class_device->class_id
 #endif
 						  );
 		}
@@ -167,15 +166,16 @@ static struct file_operations adc7k_subsystem_fops = {
 struct adc7k_board *adc7k_board_register(struct module *owner, char *name, struct cdev *cdev, struct file_operations *fops)
 {
 	size_t i;
-	char brdname[ADC7K_BOARD_NAME_MAX_LENGTH];
+	char board_name[ADC7K_BOARD_NAME_MAX_LENGTH];
 	int rc;
-	int devno = -1;
-	struct adc7k_board *brd;
+	int minor = -1;
+	struct adc7k_board *board;
 
-	if (!(brd = kmalloc(sizeof(struct adc7k_board), GFP_KERNEL))) {
+	if (!(board = kmalloc(sizeof(struct adc7k_board), GFP_KERNEL))) {
 		log(KERN_ERR, "\"%s\" - can't get memory for struct adc7k_board\n", name);
 		goto adc7k_board_register_error;
 	}
+	memset(board, 0, sizeof(struct adc7k_board));
 
 	mutex_lock(&adc7k_board_list_lock);
 	// check for name is not used
@@ -186,20 +186,33 @@ struct adc7k_board *adc7k_board_register(struct module *owner, char *name, struc
 			goto adc7k_board_register_error;
 		}
 	}
-	// get free slot
-	for (i = 0; i < ADC7K_BOARD_MAX_COUNT; ++i) {
-		if (!adc7k_board_list[i]) {
-			devno = MKDEV(adc7k_subsystem_major, i);
-			adc7k_board_list[i] = brd;
-			brd->devno = devno;
-			snprintf(brd->name, ADC7K_BOARD_NAME_MAX_LENGTH, "%s", name);
+	// get free minor number
+	for (i = 0; i < ADC7K_DEVICE_MAX_COUNT; ++i) {
+		if (!adc7k_subsystem_cdev_minor_alloc[i]) {
+			adc7k_subsystem_cdev_minor_alloc[i] = 1;
+			minor = i;
 			break;
+		}
+	}
+	if (minor >= 0) {
+		// get free board list slot
+		for (i = 0; i < ADC7K_BOARD_MAX_COUNT; ++i) {
+			if (!adc7k_board_list[i]) {
+				adc7k_board_list[i] = board;
+				board->device_number = MKDEV(adc7k_subsystem_major, minor);
+				snprintf(board->name, ADC7K_BOARD_NAME_MAX_LENGTH, "%s", name);
+				break;
+			}
 		}
 	}
 	mutex_unlock(&adc7k_board_list_lock);
 
-	if (devno < 0) {
-		log(KERN_ERR, "\"%s\" - can't get free slot\n", name);
+	if (minor < 0) {
+		log(KERN_ERR, "\"%s\" - can't get free minor number\n", name);
+		goto adc7k_board_register_error;
+	}
+	if (i == ADC7K_BOARD_MAX_COUNT) {
+		log(KERN_ERR, "\"%s\" - can't get free board list slot\n", name);
 		goto adc7k_board_register_error;
 	}
 
@@ -207,52 +220,163 @@ struct adc7k_board *adc7k_board_register(struct module *owner, char *name, struc
 	cdev_init(cdev, fops);
 	cdev->owner = owner;
 	cdev->ops = fops;
-	brd->cdev = cdev;
-	if ((rc = cdev_add(cdev, devno, 1)) < 0) {
+	board->char_device = cdev;
+	if ((rc = cdev_add(cdev, board->device_number, 1)) < 0) {
 		log(KERN_ERR, "\"%s\" - cdev_add() error=%d\n", name, rc);
 		goto adc7k_board_register_error;
 	}
-	snprintf(brdname, ADC7K_BOARD_NAME_MAX_LENGTH, "adc7k!%s", name);
-	if (!(brd->device = CLASS_DEV_CREATE(adc7k_class, devno, NULL, brdname))) {
+	snprintf(board_name, ADC7K_BOARD_NAME_MAX_LENGTH, "adc7k!%s", name);
+	if (!(board->class_device = CLASS_DEV_CREATE(adc7k_class, board->device_number, NULL, board_name))) {
 		log(KERN_ERR, "\"%s\" - class_dev_create() error\n", name);
 		goto adc7k_board_register_error;
 	}
 
 	verbose("\"%s\" registered\n", name);
-	return brd;
+	return board;
 
 adc7k_board_register_error:
-	if (devno >= 0) {
-		mutex_lock(&adc7k_board_list_lock);
-		for (i = 0; i < ADC7K_BOARD_MAX_COUNT; ++i) {
-			if ((adc7k_board_list[i]) && (!strcmp(adc7k_board_list[i]->name, name))) {
-				adc7k_board_list[i] = NULL;
-				break;
-			}
-		}
-		mutex_unlock(&adc7k_board_list_lock);
+	mutex_lock(&adc7k_board_list_lock);
+	if (minor >= 0) {
+		adc7k_subsystem_cdev_minor_alloc[minor] = 0;
 	}
-	if (brd) {
-		kfree(brd);
+	for (i = 0; i < ADC7K_BOARD_MAX_COUNT; ++i) {
+		if ((adc7k_board_list[i]) && (!strcmp(adc7k_board_list[i]->name, name))) {
+			adc7k_board_list[i] = NULL;
+			break;
+		}
+	}
+	mutex_unlock(&adc7k_board_list_lock);
+	if (board) {
+		kfree(board);
 	}
 	return NULL;
 }
 
-void adc7k_board_unregister(struct adc7k_board *brd)
+void adc7k_board_unregister(struct adc7k_board *board)
 {
 	size_t i;
 
-	CLASS_DEV_DESTROY(adc7k_class, brd->devno);
-	cdev_del(brd->cdev);
+	CLASS_DEV_DESTROY(adc7k_class, board->device_number);
+	cdev_del(board->char_device);
 
-	verbose("\"%s\" unregistered\n", brd->name);
+	verbose("\"%s\" unregistered\n", board->name);
 
 	mutex_lock(&adc7k_board_list_lock);
-
+	adc7k_subsystem_cdev_minor_alloc[MINOR(board->device_number)] = 0;
 	for (i = 0; i < ADC7K_BOARD_MAX_COUNT; ++i) {
-		if ((adc7k_board_list[i]) && (!strcmp(adc7k_board_list[i]->name, brd->name))) {
+		if ((adc7k_board_list[i]) && (!strcmp(adc7k_board_list[i]->name, board->name))) {
 			kfree(adc7k_board_list[i]);
 			adc7k_board_list[i] = NULL;
+			break;
+		}
+	}
+	mutex_unlock(&adc7k_board_list_lock);
+}
+
+struct adc7k_channel *adc7k_channel_register(struct module *owner, struct adc7k_board *board, char *name, struct cdev *cdev, struct file_operations *fops)
+{
+	size_t i;
+	char channel_name[ADC7K_CHANNEL_NAME_MAX_LENGTH];
+	int rc;
+	int minor = -1;
+	struct adc7k_channel *channel;
+
+	if (!(channel = kmalloc(sizeof(struct adc7k_channel), GFP_KERNEL))) {
+		log(KERN_ERR, "\"%s\" - can't get memory for struct adc7k_channel\n", name);
+		goto adc7k_channel_register_error;
+	}
+	memset(channel, 0, sizeof(struct adc7k_channel));
+
+	mutex_lock(&adc7k_board_list_lock);
+	// check for name is not used
+	for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
+		if ((board->channel[i]) && (!strcmp(board->channel[i]->name, name))) {
+			mutex_unlock(&adc7k_board_list_lock);
+			log(KERN_ERR, "\"%s\" already registered\n", name);
+			goto adc7k_channel_register_error;
+		}
+	}
+	// get free minor number
+	for (i = 0; i < ADC7K_DEVICE_MAX_COUNT; ++i) {
+		if (!adc7k_subsystem_cdev_minor_alloc[i]) {
+			adc7k_subsystem_cdev_minor_alloc[i] = 1;
+			minor = i;
+			break;
+		}
+	}
+	if (minor >= 0) {
+		// get free channel list slot
+		for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
+			if (!board->channel[i]) {
+				board->channel[i] = channel;
+				channel->device_number = MKDEV(adc7k_subsystem_major, minor);
+				snprintf(channel->name, ADC7K_CHANNEL_NAME_MAX_LENGTH, "%s", name);
+				break;
+			}
+		}
+	}
+	mutex_unlock(&adc7k_board_list_lock);
+
+	if (minor < 0) {
+		log(KERN_ERR, "\"%s\" - can't get free minor number\n", name);
+		goto adc7k_channel_register_error;
+	}
+	if (i == ADC7K_BOARD_MAX_COUNT) {
+		log(KERN_ERR, "\"%s\" - can't get free board list slot\n", name);
+		goto adc7k_channel_register_error;
+	}
+
+	// Add char device to system
+	cdev_init(cdev, fops);
+	cdev->owner = owner;
+	cdev->ops = fops;
+	channel->char_device = cdev;
+	if ((rc = cdev_add(cdev, channel->device_number, 1)) < 0) {
+		log(KERN_ERR, "\"%s\" - cdev_add() error=%d\n", name, rc);
+		goto adc7k_channel_register_error;
+	}
+	snprintf(channel_name, ADC7K_CHANNEL_NAME_MAX_LENGTH, "adc7k!%s", name);
+	if (!(channel->class_device = CLASS_DEV_CREATE(adc7k_class, channel->device_number, NULL, channel_name))) {
+		log(KERN_ERR, "\"%s\" - class_dev_create() error\n", name);
+		goto adc7k_channel_register_error;
+	}
+
+	verbose("\"%s\" registered\n", name);
+	return channel;
+
+adc7k_channel_register_error:
+	mutex_lock(&adc7k_board_list_lock);
+	if (minor >= 0) {
+		adc7k_subsystem_cdev_minor_alloc[minor] = 0;
+	}
+	for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
+		if ((board->channel[i]) && (!strcmp(board->channel[i]->name, name))) {
+			board->channel[i] = NULL;
+			break;
+		}
+	}
+	mutex_unlock(&adc7k_board_list_lock);
+	if (channel) {
+		kfree(channel);
+	}
+	return NULL;
+}
+
+void adc7k_channel_unregister(struct adc7k_board *board, struct adc7k_channel *channel)
+{
+	size_t i;
+
+	CLASS_DEV_DESTROY(adc7k_class, channel->device_number);
+	cdev_del(channel->char_device);
+
+	verbose("\"%s\" unregistered\n", channel->name);
+
+	mutex_lock(&adc7k_board_list_lock);
+	adc7k_subsystem_cdev_minor_alloc[MINOR(channel->device_number)] = 0;
+	for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
+		if ((board->channel[i]) && (!strcmp(board->channel[i]->name, channel->name))) {
+			kfree(board->channel[i]);
+			board->channel[i] = NULL;
 			break;
 		}
 	}
@@ -262,16 +386,20 @@ void adc7k_board_unregister(struct adc7k_board *brd)
 static int __init adc7k_init(void)
 {
 	size_t i;
-	dev_t devno;
+	dev_t device_number;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
-	struct device *device = NULL;
+	struct device *class_device = NULL;
 #else
-	struct class_device *device = NULL;
+	struct class_device *class_device = NULL;
 #endif
 	int adc7k_subsystem_major_reg = 0;
 	int rc = -1;
 
-	verbose("loading version \"%s\"...\n", ADC7K_LINUX_VERSION);
+	verbose("loading version \"%s\"\n", ADC7K_LINUX_VERSION);
+
+	for (i = 0; i < ADC7K_DEVICE_MAX_COUNT; ++i) {
+		adc7k_subsystem_cdev_minor_alloc[i] = 0;
+	}
 
 	for (i = 0; i < ADC7K_BOARD_MAX_COUNT; ++i) {
 		adc7k_board_list[i] = NULL;
@@ -284,11 +412,13 @@ static int __init adc7k_init(void)
 	}
 	// Register char device region
 	if (adc7k_subsystem_major) {
-		devno = MKDEV(adc7k_subsystem_major, 0);
-		rc = register_chrdev_region(devno, ADC7K_DEVICE_MAX_COUNT, "adc7k");
+		device_number = MKDEV(adc7k_subsystem_major, 0);
+		rc = register_chrdev_region(device_number, ADC7K_DEVICE_MAX_COUNT, "adc7k");
 	} else {
-		rc = alloc_chrdev_region(&devno, 0, ADC7K_DEVICE_MAX_COUNT, "adc7k");
-		if(rc >= 0) adc7k_subsystem_major = MAJOR(devno);
+		rc = alloc_chrdev_region(&device_number, 0, ADC7K_DEVICE_MAX_COUNT, "adc7k");
+		if (rc >= 0) {
+			adc7k_subsystem_major = MAJOR(device_number);
+		}
 	}
 	if (rc < 0) {
 		log(KERN_ERR, "register chrdev region error=%d\n", rc);
@@ -301,21 +431,21 @@ static int __init adc7k_init(void)
 	cdev_init(&adc7k_subsystem_cdev, &adc7k_subsystem_fops);
 	adc7k_subsystem_cdev.owner = THIS_MODULE;
 	adc7k_subsystem_cdev.ops = &adc7k_subsystem_fops;
-	devno = MKDEV(adc7k_subsystem_major, ADC7K_DEVICE_MAX_COUNT - 1);
-	if ((rc = cdev_add(&adc7k_subsystem_cdev, devno, 1)) < 0) {
+	device_number = MKDEV(adc7k_subsystem_major, ADC7K_DEVICE_MAX_COUNT - 1);
+	if ((rc = cdev_add(&adc7k_subsystem_cdev, device_number, 1)) < 0) {
 		log(KERN_ERR, "\"subsystem\" - cdev_add() error=%d\n", rc);
 		goto adc7k_init_error;
 	}
-	if (!(device = CLASS_DEV_CREATE(adc7k_class, devno, NULL, "adc7k!subsystem"))) {
+	adc7k_subsystem_cdev_minor_alloc[ADC7K_DEVICE_MAX_COUNT - 1] = 1;
+	if (!(class_device = CLASS_DEV_CREATE(adc7k_class, device_number, NULL, "adc7k!subsystem"))) {
 		log(KERN_ERR, "\"subsystem\" - class_dev_create() error\n");
 		goto adc7k_init_error;
 	}
 
-	verbose("loaded successfull\n");
 	return 0;
 
 adc7k_init_error:
-	if (device) {
+	if (class_device) {
 		CLASS_DEV_DESTROY(adc7k_class, MKDEV(adc7k_subsystem_major, ADC7K_DEVICE_MAX_COUNT - 1));
 	}
 	if (adc7k_subsystem_major_reg) {
