@@ -14,6 +14,8 @@
 #define ADC7K_CHANNEL_PER_BOARD_MAX_COUNT 4
 #define ADC7K_CHANNEL_NAME_MAX_LENGTH ADC7K_DEVICE_NAME_MAX_LENGTH
 
+#define ADC7K_RING_BUFFER_ENTRY_MAX_COUNT 8
+
 #ifdef __KERNEL__
 
 #include <linux/cdev.h>
@@ -56,6 +58,14 @@ void adc7k_board_unregister(struct adc7k_board *board);
 
 struct adc7k_channel *adc7k_channel_register(struct module *owner, struct adc7k_board *board, char *name, struct cdev *cdev, struct file_operations *fops);
 void adc7k_channel_unregister(struct adc7k_board *board, struct adc7k_channel *channel);
+
+const char *adc7k_channel_number_to_string(size_t num);
+
+struct adc7k_ring_buffer_entry {
+	int busy;
+	void *data;
+	size_t length;
+};
 
 #endif //__KERNEL__
 

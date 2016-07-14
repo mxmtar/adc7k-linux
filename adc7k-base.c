@@ -36,7 +36,7 @@ EXPORT_SYMBOL(adc7k_board_register);
 EXPORT_SYMBOL(adc7k_board_unregister);
 EXPORT_SYMBOL(adc7k_channel_register);
 EXPORT_SYMBOL(adc7k_channel_unregister);
-
+EXPORT_SYMBOL(adc7k_channel_number_to_string);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
 	#define CLASS_DEV_CREATE(_class, _devt, _device, _name) device_create(_class, _device, _devt, NULL, "%s", _name)
@@ -381,6 +381,17 @@ void adc7k_channel_unregister(struct adc7k_board *board, struct adc7k_channel *c
 		}
 	}
 	mutex_unlock(&adc7k_board_list_lock);
+}
+
+const char *adc7k_channel_number_to_string(size_t num)
+{
+	switch (num) {
+		case 0: return "01";
+		case 1: return "23";
+		case 2: return "45";
+		case 3: return "67";
+		default: return "bad";
+	}
 }
 
 static int __init adc7k_init(void)

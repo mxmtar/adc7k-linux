@@ -5,8 +5,9 @@ INSTALL := install
 
 KERNEL_MOD_DIR := adc7k
 
-obj-m := adc7k.o adc7k-pseudo.o
+obj-m := adc7k.o adc7k-cpci3u.o adc7k-pseudo.o
 adc7k-objs := adc7k-base.o
+adc7k-cpci3u-objs:= adc7k-cpci3u-base.o
 adc7k-pseudo-objs:= adc7k-pseudo-base.o
 
 KERNEL_VERSION := `uname -r`

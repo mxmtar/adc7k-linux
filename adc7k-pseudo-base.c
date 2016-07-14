@@ -58,11 +58,12 @@ static int adc7k_pseudo_board_open(struct inode *inode, struct file *filp)
 	private_data->board = board;
 
 	len = 0;
-	len += sprintf(private_data->buff + len, "ADC7K PSEUDO\r\n");
+	len += sprintf(private_data->buff + len, "ADC7K Pseudo\r\n");
 
 	for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
 		if (board->channel[i]) {
-			len += sprintf(private_data->buff + len, "CH %s\r\n",
+			len += sprintf(private_data->buff + len, "CH%s %s\r\n",
+							adc7k_channel_number_to_string(i),
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
 							dev_name(board->channel[i]->adc7k_channel->class_device)
 #else
@@ -148,21 +149,23 @@ static int __init adc7k_pseudo_init(void)
 	}
 
 	// alloc memory for channel data
-	if (!(adc7k_pseudo_board->channel[0] = kmalloc(sizeof(struct adc7k_pseudo_channel), GFP_KERNEL))) {
-		log(KERN_ERR, "can't get memory for struct adc7k_pseudo_channel\n");
-		rc = -1;
-		goto adc7k_pseudo_init_error;
-	}
-	memset(adc7k_pseudo_board->channel[0], 0, sizeof(struct adc7k_pseudo_channel));
+	for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
+		if (!(adc7k_pseudo_board->channel[i] = kmalloc(sizeof(struct adc7k_pseudo_channel), GFP_KERNEL))) {
+			log(KERN_ERR, "can't get memory for struct adc7k_pseudo_channel\n");
+			rc = -1;
+			goto adc7k_pseudo_init_error;
+		}
+		memset(adc7k_pseudo_board->channel[i], 0, sizeof(struct adc7k_pseudo_channel));
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
-	snprintf(device_name, ADC7K_CHANNEL_NAME_MAX_LENGTH, "board-pseudo-channel-%s", "01");
+		snprintf(device_name, ADC7K_CHANNEL_NAME_MAX_LENGTH, "board-pseudo-channel-%s", adc7k_channel_number_to_string(i));
 #else
-	snprintf(device_name, ADC7K_CHANNEL_NAME_MAX_LENGTH, "bpc%s", "01");
+		snprintf(device_name, ADC7K_CHANNEL_NAME_MAX_LENGTH, "bpc%s", adc7k_channel_number_to_string(i));
 #endif
-	if (!(adc7k_pseudo_board->channel[0]->adc7k_channel =  adc7k_channel_register(THIS_MODULE, adc7k_pseudo_board->adc7k_board, device_name, &adc7k_pseudo_board->channel[0]->cdev, &adc7k_pseudo_channel_fops))) {
-		rc = -1;
-		goto adc7k_pseudo_init_error;
+		if (!(adc7k_pseudo_board->channel[i]->adc7k_channel = adc7k_channel_register(THIS_MODULE, adc7k_pseudo_board->adc7k_board, device_name, &adc7k_pseudo_board->channel[i]->cdev, &adc7k_pseudo_channel_fops))) {
+			rc = -1;
+			goto adc7k_pseudo_init_error;
+		}
 	}
 
 	verbose("loaded\n");
