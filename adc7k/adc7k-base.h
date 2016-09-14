@@ -5,6 +5,13 @@
 #ifndef __ADC7K_BASE_H__
 #define __ADC7K_BASE_H__
 
+#include <asm/page.h>
+
+#include <linux/cdev.h>
+#include <linux/fs.h>
+#include <linux/device.h>
+#include <linux/types.h>
+
 #define ADC7K_DEVICE_MAX_COUNT 256
 #define ADC7K_DEVICE_NAME_MAX_LENGTH 256
 
@@ -14,20 +21,7 @@
 #define ADC7K_CHANNEL_PER_BOARD_MAX_COUNT 4
 #define ADC7K_CHANNEL_NAME_MAX_LENGTH ADC7K_DEVICE_NAME_MAX_LENGTH
 
-#define ADC7K_RING_BUFFER_ENTRY_MAX_COUNT 8
-
-#ifdef __KERNEL__
-
-#include <linux/cdev.h>
-#include <linux/fs.h>
-#include <linux/device.h>
-#include <linux/poll.h>
-#include <linux/spinlock.h>
-#include <linux/timer.h>
-#include <linux/tty.h>
-#include <linux/tty_flip.h>
-#include <linux/types.h>
-#include <linux/wait.h>
+#define ADC7K_DEFAULT_SAMPLING_RATE 50000000
 
 struct adc7k_channel {
 	char name[ADC7K_CHANNEL_NAME_MAX_LENGTH];
@@ -60,13 +54,5 @@ struct adc7k_channel *adc7k_channel_register(struct module *owner, struct adc7k_
 void adc7k_channel_unregister(struct adc7k_board *board, struct adc7k_channel *channel);
 
 const char *adc7k_channel_number_to_string(size_t num);
-
-struct adc7k_ring_buffer_entry {
-	int busy;
-	void *data;
-	size_t length;
-};
-
-#endif //__KERNEL__
 
 #endif //__ADC7K_BASE_H__

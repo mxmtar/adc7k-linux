@@ -2,11 +2,11 @@
 /* adc7k-base.c                                                               */
 /******************************************************************************/
 
-#include <linux/kobject.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/fs.h>
+#include <linux/kobject.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -14,12 +14,12 @@
 #include <linux/version.h>
 #include <linux/vmalloc.h>
 
+// #include <asm/atomic.h>
+// #if defined(CONFIG_COMPAT) && defined(HAVE_COMPAT_IOCTL) && (HAVE_COMPAT_IOCTL == 1)
+// #include <asm/compat.h>
+// #endif
+// #include <asm/io.h>
 #include <asm/uaccess.h>
-#include <asm/atomic.h>
-#include <asm/io.h>
-#if defined(CONFIG_COMPAT) && defined(HAVE_COMPAT_IOCTL) && (HAVE_COMPAT_IOCTL == 1)
-#include <asm/compat.h>
-#endif
 
 #include "adc7k/adc7k-base.h"
 #include "adc7k/version.h"
@@ -28,9 +28,9 @@ MODULE_AUTHOR("Maksym Tarasevych <mxmtar@gmail.com>");
 MODULE_DESCRIPTION("ADC7K Linux base module");
 MODULE_LICENSE("GPL");
 
-static int adc7k_subsystem_major = 0;
-module_param(adc7k_subsystem_major, int, 0);
-MODULE_PARM_DESC(adc7k_subsystem_major, "Major number for ADC7K subsystem device");
+static int major = 0;
+module_param(major, int, 0);
+MODULE_PARM_DESC(major, "Major number for ADC7K subsystem device");
 
 EXPORT_SYMBOL(adc7k_board_register);
 EXPORT_SYMBOL(adc7k_board_unregister);
@@ -100,17 +100,23 @@ static int adc7k_subsystem_open(struct inode *inode, struct file *filp)
 
 	mutex_lock(&adc7k_board_list_lock);
 	len = 0;
+	len += sprintf(private_data->buff + len, "{\r\n");
+	len += sprintf(private_data->buff + len, "\r\n\t\"boards\": [");
 	for (i = 0; i < ADC7K_BOARD_MAX_COUNT; i++) {
 		if (adc7k_board_list[i]) {
-			len += sprintf(private_data->buff + len, "%s %s\r\n", adc7k_board_list[i]->char_device->owner->name,
+			len += sprintf(private_data->buff + len, "%s\r\n\t\t{\r\n\t\t\t\"driver\": \"%s\",\r\n\t\t\t\"path\": \"%s\"\r\n\t\t}",
+							i ? "," : "",
+							adc7k_board_list[i]->char_device->owner->name,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
 							dev_name(adc7k_board_list[i]->class_device)
 #else
 							adc7k_board_list[i]->class_device->class_id
 #endif
-						  );
+							);
 		}
 	}
+	len += sprintf(private_data->buff + len, "\r\n\t]");
+	len += sprintf(private_data->buff + len, "\r\n}\r\n");
 	mutex_unlock(&adc7k_board_list_lock);
 
 	private_data->length = len;
@@ -199,7 +205,7 @@ struct adc7k_board *adc7k_board_register(struct module *owner, char *name, struc
 		for (i = 0; i < ADC7K_BOARD_MAX_COUNT; ++i) {
 			if (!adc7k_board_list[i]) {
 				adc7k_board_list[i] = board;
-				board->device_number = MKDEV(adc7k_subsystem_major, minor);
+				board->device_number = MKDEV(major, minor);
 				snprintf(board->name, ADC7K_BOARD_NAME_MAX_LENGTH, "%s", name);
 				break;
 			}
@@ -309,7 +315,7 @@ struct adc7k_channel *adc7k_channel_register(struct module *owner, struct adc7k_
 		for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
 			if (!board->channel[i]) {
 				board->channel[i] = channel;
-				channel->device_number = MKDEV(adc7k_subsystem_major, minor);
+				channel->device_number = MKDEV(major, minor);
 				snprintf(channel->name, ADC7K_CHANNEL_NAME_MAX_LENGTH, "%s", name);
 				break;
 			}
@@ -386,11 +392,11 @@ void adc7k_channel_unregister(struct adc7k_board *board, struct adc7k_channel *c
 const char *adc7k_channel_number_to_string(size_t num)
 {
 	switch (num) {
-		case 0: return "01";
-		case 1: return "23";
-		case 2: return "45";
-		case 3: return "67";
-		default: return "bad";
+		case 0: return "12";
+		case 1: return "34";
+		case 2: return "56";
+		case 3: return "78";
+		default: return "xx";
 	}
 }
 
@@ -403,7 +409,7 @@ static int __init adc7k_init(void)
 #else
 	struct class_device *class_device = NULL;
 #endif
-	int adc7k_subsystem_major_reg = 0;
+	int major_reg = 0;
 	int rc = -1;
 
 	verbose("loading version \"%s\"\n", ADC7K_LINUX_VERSION);
@@ -422,27 +428,26 @@ static int __init adc7k_init(void)
 		goto adc7k_init_error;
 	}
 	// Register char device region
-	if (adc7k_subsystem_major) {
-		device_number = MKDEV(adc7k_subsystem_major, 0);
+	if (major) {
+		device_number = MKDEV(major, 0);
 		rc = register_chrdev_region(device_number, ADC7K_DEVICE_MAX_COUNT, "adc7k");
 	} else {
 		rc = alloc_chrdev_region(&device_number, 0, ADC7K_DEVICE_MAX_COUNT, "adc7k");
 		if (rc >= 0) {
-			adc7k_subsystem_major = MAJOR(device_number);
+			major = MAJOR(device_number);
 		}
 	}
 	if (rc < 0) {
 		log(KERN_ERR, "register chrdev region error=%d\n", rc);
 		goto adc7k_init_error;
 	}
-	debug("adc7k subsystem major=%d\n", adc7k_subsystem_major);
-	adc7k_subsystem_major_reg = 1;
+	major_reg = 1;
 
 	// Add subsystem device
 	cdev_init(&adc7k_subsystem_cdev, &adc7k_subsystem_fops);
 	adc7k_subsystem_cdev.owner = THIS_MODULE;
 	adc7k_subsystem_cdev.ops = &adc7k_subsystem_fops;
-	device_number = MKDEV(adc7k_subsystem_major, ADC7K_DEVICE_MAX_COUNT - 1);
+	device_number = MKDEV(major, ADC7K_DEVICE_MAX_COUNT - 1);
 	if ((rc = cdev_add(&adc7k_subsystem_cdev, device_number, 1)) < 0) {
 		log(KERN_ERR, "\"subsystem\" - cdev_add() error=%d\n", rc);
 		goto adc7k_init_error;
@@ -457,10 +462,10 @@ static int __init adc7k_init(void)
 
 adc7k_init_error:
 	if (class_device) {
-		CLASS_DEV_DESTROY(adc7k_class, MKDEV(adc7k_subsystem_major, ADC7K_DEVICE_MAX_COUNT - 1));
+		CLASS_DEV_DESTROY(adc7k_class, MKDEV(major, ADC7K_DEVICE_MAX_COUNT - 1));
 	}
-	if (adc7k_subsystem_major_reg) {
-		unregister_chrdev_region(MKDEV(adc7k_subsystem_major, 0), ADC7K_DEVICE_MAX_COUNT);
+	if (major_reg) {
+		unregister_chrdev_region(MKDEV(major, 0), ADC7K_DEVICE_MAX_COUNT);
 	}
 	if (adc7k_class) {
 		class_destroy(adc7k_class);
@@ -471,10 +476,10 @@ adc7k_init_error:
 static void __exit adc7k_exit(void)
 {
 	// Destroy subsystem device
-	CLASS_DEV_DESTROY(adc7k_class, MKDEV(adc7k_subsystem_major, ADC7K_DEVICE_MAX_COUNT - 1));
+	CLASS_DEV_DESTROY(adc7k_class, MKDEV(major, ADC7K_DEVICE_MAX_COUNT - 1));
 	cdev_del(&adc7k_subsystem_cdev);
 	// Unregister char device region
-	unregister_chrdev_region(MKDEV(adc7k_subsystem_major, 0), ADC7K_DEVICE_MAX_COUNT);
+	unregister_chrdev_region(MKDEV(major, 0), ADC7K_DEVICE_MAX_COUNT);
 	// Destroy adc7k device class
 	class_destroy(adc7k_class);
 
