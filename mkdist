@@ -24,6 +24,11 @@ rm -rf adc7k-linux-${VERSION}
 git archive --format=tar.gz --prefix=adc7k-linux-${VERSION}/ ${TAG} > adc7k-linux-${VERSION}.tar.gz
 
 tar -xzf adc7k-linux-${VERSION}.tar.gz
+rm -f adc7k-linux-${VERSION}/adc7k/.gitignore
+rm -f adc7k-linux-${VERSION}/.gitignore
+rm -f adc7k-linux-${VERSION}/.version
+rm -f adc7k-linux-${VERSION}/mkdist
+rm -f adc7k-linux-${VERSION}/mkverhdr
 cp adc7k/version.h adc7k-linux-${VERSION}/adc7k/version.h
 tar -czf adc7k-linux-${VERSION}.tar.gz adc7k-linux-${VERSION}
 

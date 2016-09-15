@@ -21,7 +21,7 @@ modules:
 
 modules_install: install_modules
 
-install: install_modules install_headers
+install: install_modules install_headers install_modprobe_conf
 
 install_modules:
 	@make -C $(KERNEL_SRC_DIR) M=$(PWD) INSTALL_MOD_PATH=$(KERNEL_STG_DIR) INSTALL_MOD_DIR=$(KERNEL_MOD_DIR) modules_install
@@ -32,11 +32,13 @@ install_headers:
 		$(INSTALL) -m 644 $$header "$(DESTDIR)/usr/include/adc7k" ; \
 	done
 
-
 install_udev_rules:
 	$(INSTALL) -m 644 adc7k-udev.rules "$(DESTDIR)/etc/udev/rules.d/adc7k.rules"
 
-uninstall: uninstall_modules uninstall_headers uninstall_udev_rules
+install_modprobe_conf:
+	$(INSTALL) -m 644 adc7k-modprobe.conf "$(DESTDIR)/etc/modprobe.d/adc7k.conf"
+
+uninstall: uninstall_modules uninstall_headers uninstall_udev_rules uninstall_modprobe_conf
 
 uninstall_modules:
 	rm -rvf "$(DESTDIR)/lib/modules/$(KERNEL_VERSION)/$(KERNEL_MOD_DIR)"
@@ -47,6 +49,9 @@ uninstall_headers:
 
 uninstall_udev_rules:
 	rm -fv $(DESTDIR)/etc/udev/rules.d/adc7k.rules
+
+uninstall_modprobe_conf:
+	rm -fv $(DESTDIR)/etc/modprobe.d/adc7k.conf
 
 clean:
 	@make -C $(KERNEL_SRC_DIR) M=$(PWD) clean

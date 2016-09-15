@@ -90,11 +90,9 @@ static struct adc7k_pseudo_board **adc7k_pseudo_board_list = NULL;
 
 static void adc7k_pseudo_board_sampler(unsigned long addr)
 {
-	size_t do_more = 0;
 	size_t i;
 	size_t s, e;
 	size_t shift;
-	unsigned long jiffdiff;
 	u32 *sp;
 	struct adc7k_pseudo_board *board = (struct adc7k_pseudo_board *)addr;
 	struct adc7k_pseudo_channel *channel;
@@ -110,21 +108,13 @@ static void adc7k_pseudo_board_sampler(unsigned long addr)
 				*sp++ = ((s + shift) & 0x3fff) + ((get_random_int() & 0x3fff) << 14);
 			}
 			channel->data_length = channel->mem_length;
-			if (!board->sampler_continuous) {
-				channel->sampler_done = 1;
-			}
+			channel->sampler_done = 1;
 			wake_up_interruptible(&channel->poll_waitq);
 			wake_up_interruptible(&channel->read_waitq);
 			spin_unlock(&channel->lock);
 		}
 	}
-	do_more = board->sampler_continuous;
 	spin_unlock(&board->lock);
-
-	if (do_more) {
-		jiffdiff = (HZ * board->sampler_length) / board->sampling_rate;
-		mod_timer(&board->sampler_timer, jiffies + jiffdiff ? jiffdiff : 0);
-	}
 }
 
 static int adc7k_pseudo_board_open(struct inode *inode, struct file *filp)
