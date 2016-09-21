@@ -949,64 +949,69 @@ static struct file_operations adc7k_cpci3u_channel_fops = {
 static irqreturn_t adc7k_cpci3u_board_interrupt(int irq, void *data)
 {
 	size_t i;
+	irqreturn_t res = IRQ_NONE;
 	struct adc7k_cpci3u_board *board = data;
 
 	spin_lock(&board->lock);
+	
+	if (adc7k_cpci3u_board_is_interrupt_requested(board)) {
 
-	adc7k_cpci3u_board_reset_interrupt(board);
+		adc7k_cpci3u_board_reset_interrupt(board);
 
-	del_timer_sync(&board->dma_timer);
+		del_timer_sync(&board->dma_timer);
 
-	spin_lock(&board->channel[board->channel_current]->lock);
+		spin_lock(&board->channel[board->channel_current]->lock);
 
-	++board->channel[board->channel_current]->transactions;
-	board->channel[board->channel_current]->data_length = min(board->dma_buffer_size, board->sampler_length * 4);
-	if (!board->sampler_continuous) {
-		board->channel[board->channel_current]->sampler_done = 1;
-	}
-	wake_up_interruptible(&board->channel[board->channel_current]->read_waitq);
-	wake_up_interruptible(&board->channel[board->channel_current]->poll_waitq);
-
-	spin_unlock(&board->channel[board->channel_current]->lock);
-
-	++board->channel_current;
-	if (board->channel_current < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT) {
-		adc7k_cpci3u_board_set_dma_address(board, board->dma_address[board->channel_current]);
-		adc7k_cpci3u_board_set_dma_length(board, min(board->dma_buffer_size / 4, board->sampler_length));
-		adc7k_cpci3u_board_select_channel(board, board->channel_current);
-		adc7k_cpci3u_board_reset_all(board);
-		adc7k_cpci3u_board_dma_start(board);
-		board->dma_timer.function = adc7k_cpci3u_board_dma_timer;
-		board->dma_timer.data = (unsigned long)board;
-		board->dma_timer.expires = jiffies + HZ;
-		add_timer(&board->dma_timer);
-	} else {
-		for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
-			spin_lock(&board->channel[i]->lock);
-			wake_up_interruptible(&board->channel[i]->read_waitq);
-			wake_up_interruptible(&board->channel[i]->poll_waitq);
-			spin_unlock(&board->channel[i]->lock);
+		++board->channel[board->channel_current]->transactions;
+		board->channel[board->channel_current]->data_length = min(board->dma_buffer_size, board->sampler_length * 4);
+		if (!board->sampler_continuous) {
+			board->channel[board->channel_current]->sampler_done = 1;
 		}
-		if (board->sampler_continuous) {
-			board->channel_current = 0;
+		wake_up_interruptible(&board->channel[board->channel_current]->read_waitq);
+		wake_up_interruptible(&board->channel[board->channel_current]->poll_waitq);
+
+		spin_unlock(&board->channel[board->channel_current]->lock);
+
+		++board->channel_current;
+		if (board->channel_current < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT) {
 			adc7k_cpci3u_board_set_dma_address(board, board->dma_address[board->channel_current]);
 			adc7k_cpci3u_board_set_dma_length(board, min(board->dma_buffer_size / 4, board->sampler_length));
 			adc7k_cpci3u_board_select_channel(board, board->channel_current);
 			adc7k_cpci3u_board_reset_all(board);
-			adc7k_cpci3u_board_sampler_start(board);
+			adc7k_cpci3u_board_dma_start(board);
 			board->dma_timer.function = adc7k_cpci3u_board_dma_timer;
 			board->dma_timer.data = (unsigned long)board;
 			board->dma_timer.expires = jiffies + HZ;
 			add_timer(&board->dma_timer);
 		} else {
-			board->dma_run = 0;
-			wake_up_interruptible(&board->dma_waitq);
+			for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
+				spin_lock(&board->channel[i]->lock);
+				wake_up_interruptible(&board->channel[i]->read_waitq);
+				wake_up_interruptible(&board->channel[i]->poll_waitq);
+				spin_unlock(&board->channel[i]->lock);
+			}
+			if (board->sampler_continuous) {
+				board->channel_current = 0;
+				adc7k_cpci3u_board_set_dma_address(board, board->dma_address[board->channel_current]);
+				adc7k_cpci3u_board_set_dma_length(board, min(board->dma_buffer_size / 4, board->sampler_length));
+				adc7k_cpci3u_board_select_channel(board, board->channel_current);
+				adc7k_cpci3u_board_reset_all(board);
+				adc7k_cpci3u_board_sampler_start(board);
+				board->dma_timer.function = adc7k_cpci3u_board_dma_timer;
+				board->dma_timer.data = (unsigned long)board;
+				board->dma_timer.expires = jiffies + HZ;
+				add_timer(&board->dma_timer);
+			} else {
+				board->dma_run = 0;
+				wake_up_interruptible(&board->dma_waitq);
+			}
 		}
+		res = IRQ_HANDLED;
 	}
 
 	spin_unlock(&board->lock);
 
-	return IRQ_HANDLED;
+	return res;
 }
 
 static struct pci_device_id adc7k_cpci3u_board_id_table[] = {
@@ -1063,7 +1068,7 @@ static int __devinit adc7k_cpci3u_board_probe(struct pci_dev *pdev, const struct
 	if (!(rc = pci_read_config_byte(pdev, PCI_INTERRUPT_PIN, &board->irq_pin))) {
 		if (board->irq_pin) {
 			if (!(rc = pci_read_config_byte(pdev, PCI_INTERRUPT_LINE, &board->irq_line))) {
-				if ((rc = request_irq(pdev->irq, adc7k_cpci3u_board_interrupt, 0, "adc7k", board))) {
+				if ((rc = request_irq(pdev->irq, adc7k_cpci3u_board_interrupt, IRQF_SHARED, "adc7k", board))) {
 					log(KERN_ERR, "%s: Unable to request IRQ %d (error %d)\n", "adc7k", pdev->irq, rc);
 					goto adc7k_cpci3u_board_probe_error;
 				} else {
