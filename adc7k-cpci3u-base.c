@@ -783,7 +783,7 @@ static ssize_t adc7k_cpci3u_board_write(struct file *filp, const char __user *bu
 	} else if (sscanf(cmd, "registers.show(%u)", &value) == 1) {
 		board->reg_page_show = value;
 		res = len;
-	} else if (sscanf(cmd, "register[%u].write(0x%x)", &value, &value2) == 1) {
+	} else if (sscanf(cmd, "register[%u].write(0x%x)", &value, &value2) == 2) {
 		adc7k_cpci3u_board_write_reg(board, value, value2);
 		res = len;
 	} else {

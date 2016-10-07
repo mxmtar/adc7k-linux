@@ -30,6 +30,7 @@ rm -f adc7k-linux-${VERSION}/.version
 rm -f adc7k-linux-${VERSION}/mkdist
 rm -f adc7k-linux-${VERSION}/mkverhdr
 cp adc7k/version.h adc7k-linux-${VERSION}/adc7k/version.h
+git log > adc7k-linux-${VERSION}/ChangeLog
 tar -czf adc7k-linux-${VERSION}.tar.gz adc7k-linux-${VERSION}
 
 rm -rf adc7k-linux-${VERSION}
