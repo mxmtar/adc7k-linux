@@ -80,8 +80,9 @@ struct adc7k_pseudo_board {
 
 struct adc7k_pseudo_board_private_data {
 	struct adc7k_pseudo_board *board;
+	char buff[0xc000];
 	size_t length;
-	char buff[PAGE_SIZE - sizeof(struct adc7k_pseudo_board *) - sizeof(size_t)];
+	loff_t f_pos;
 };
 
 struct resource *dma_region = NULL;
@@ -187,16 +188,16 @@ static ssize_t adc7k_pseudo_board_read(struct file *filp, char __user *buff, siz
 	ssize_t res;
 	struct adc7k_pseudo_board_private_data *private_data = filp->private_data;
 
-	res = (private_data->length > filp->f_pos)?(private_data->length - filp->f_pos):(0);
+	res = (private_data->length > private_data->f_pos) ? (private_data->length - private_data->f_pos) : (0);
 
 	if (res) {
 		len = res;
 		len = min(count, len);
-		if (copy_to_user(buff, private_data->buff + filp->f_pos, len)) {
+		if (copy_to_user(buff, private_data->buff + private_data->f_pos, len)) {
 			res = -EINVAL;
 			goto adc7k_pseudo_board_read_end;
 		}
-		*offp = filp->f_pos + len;
+		private_data->f_pos += len;
 	}
 
 adc7k_pseudo_board_read_end:
@@ -207,25 +208,24 @@ static ssize_t adc7k_pseudo_board_write(struct file *filp, const char __user *bu
 {
 	size_t i;
 	ssize_t res;
-	char cmd[256];
 	size_t len;
 
 	u_int32_t value;
 	struct adc7k_pseudo_board_private_data *private_data = filp->private_data;
 	struct adc7k_pseudo_board *board = private_data->board;
 
-	memset(cmd, 0, sizeof(cmd));
-	len = sizeof(cmd) - 1;
+	len = sizeof(private_data->buff) - 1;
 	len = min(len, count);
 
-	if (copy_from_user(cmd, buff, len)) {
+	if (copy_from_user(private_data->buff, buff, len)) {
 		res = -EINVAL;
 		goto adc7k_cpci3u_board_write_end;
 	}
+	private_data->buff[len] = '\0';
 
 	spin_lock_bh(&board->lock);
 
-	if (sscanf(cmd, "sampler.start(%u)", &value) == 1) {
+	if (sscanf(private_data->buff, "sampler.start(%u)", &value) == 1) {
 		for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
 			if (board->channel[i]) {
 				board->channel[i]->sampler_done = 0;
@@ -239,13 +239,13 @@ static ssize_t adc7k_pseudo_board_write(struct file *filp, const char __user *bu
 		board->sampler_timer.expires = jiffies + 1;
 		add_timer(&board->sampler_timer);
 		res = len;
-	} else if (strstr(cmd, "sampler.stop()")) {
+	} else if (strstr(private_data->buff, "sampler.stop()")) {
 		board->sampler_continuous = 0;
 		res = len;
-	} else if (sscanf(cmd, "sampler.length(%u)", &value) == 1) {
+	} else if (sscanf(private_data->buff, "sampler.length(%u)", &value) == 1) {
 		board->sampler_length = value;
 		res = len;
-	} else if (sscanf(cmd, "sampler.divider(%u)", &value) == 1) {
+	} else if (sscanf(private_data->buff, "sampler.divider(%u)", &value) == 1) {
 		if ((value >= 0) && (value <= 255)) {
 			board->sampler_divider = value;
 			res = len;

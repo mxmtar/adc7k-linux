@@ -310,8 +310,9 @@ struct adc7k_cpci3u_board {
 
 struct adc7k_cpci3u_board_private_data {
 	struct adc7k_cpci3u_board *board;
-	size_t length;
 	char buff[0xc000];
+	size_t length;
+	loff_t f_pos;
 };
 
 static inline u32 adc7k_cpci3u_board_read_reg(struct adc7k_cpci3u_board *board, unsigned int index)
@@ -659,17 +660,21 @@ static ssize_t adc7k_cpci3u_board_read(struct file *filp, char __user *buff, siz
 	size_t len;
 	ssize_t res;
 	struct adc7k_cpci3u_board_private_data *private_data = filp->private_data;
+	struct adc7k_cpci3u_board *board = private_data->board;
 
-	res = (private_data->length > filp->f_pos)?(private_data->length - filp->f_pos):(0);
-
-	if (res) {
-		len = res;
-		len = min(count, len);
-		if (copy_to_user(buff, private_data->buff + filp->f_pos, len)) {
-			res = -EINVAL;
-			goto adc7k_cpci3u_board_read_end;
+	if (private_data->f_pos < 0x80000000) {
+		res = (private_data->length > private_data->f_pos) ? (private_data->length - private_data->f_pos) : (0);
+		if (res) {
+			len = res;
+			len = min(count, len);
+			if (copy_to_user(buff, private_data->buff + private_data->f_pos, len)) {
+				res = -EINVAL;
+				goto adc7k_cpci3u_board_read_end;
+			}
+			private_data->f_pos += len;
 		}
-		*offp = filp->f_pos + len;
+	} else {
+		res = adc7k_cpci3u_board_read_reg(board, private_data->f_pos & 0x1f);
 	}
 
 adc7k_cpci3u_board_read_end:
@@ -680,25 +685,24 @@ static ssize_t adc7k_cpci3u_board_write(struct file *filp, const char __user *bu
 {
 	unsigned long flags;
 	ssize_t res;
-	char cmd[256];
 	size_t i;
 	size_t len;
 	u_int32_t value, value2;
 	struct adc7k_cpci3u_board_private_data *private_data = filp->private_data;
 	struct adc7k_cpci3u_board *board = private_data->board;
 
-	memset(cmd, 0, sizeof(cmd));
-	len = sizeof(cmd) - 1;
+	len = sizeof(private_data->buff) - 1;
 	len = min(len, count);
 
-	if (copy_from_user(cmd, buff, len)) {
+	if (copy_from_user(private_data->buff, buff, len)) {
 		res = -EINVAL;
 		goto adc7k_cpci3u_board_write_end;
 	}
+	private_data->buff[len] = '\0';
 
 	spin_lock_irqsave(&board->lock, flags);
 
-	if (sscanf(cmd, "sampler.start(%u)", &value) == 1) {
+	if (sscanf(private_data->buff, "sampler.start(%u)", &value) == 1) {
 		for (i = 0; i < ADC7K_CHANNEL_PER_BOARD_MAX_COUNT; ++i) {
 			if (board->channel[i]) {
 				board->channel[i]->sampler_done = 0;
@@ -727,17 +731,17 @@ static ssize_t adc7k_cpci3u_board_write(struct file *filp, const char __user *bu
 		board->dma_timer.expires = jiffies + HZ;
 		add_timer(&board->dma_timer);
 		res = len;
-	} else if (strstr(cmd, "sampler.stop()")) {
+	} else if (strstr(private_data->buff, "sampler.stop()")) {
 		board->sampler_continuous = 0;
 		res = len;
-	} else if (sscanf(cmd, "sampler.length(%u)", &value) == 1) {
+	} else if (sscanf(private_data->buff, "sampler.length(%u)", &value) == 1) {
 		if (value > board->sampler_length_max) {
 			value = board->sampler_length_max;
 		}
 		board->sampler_length = value;
 		adc7k_cpci3u_board_set_sampler_length(board, value);
 		res = len;
-	} else if (sscanf(cmd, "sampler.divider(%u)", &value) == 1) {
+	} else if (sscanf(private_data->buff, "sampler.divider(%u)", &value) == 1) {
 		if ((value >= 0) && (value <= 255)) {
 			board->sampler_divider = value;
 			adc7k_cpci3u_board_set_sampler_divider(board, value);
@@ -745,7 +749,7 @@ static ssize_t adc7k_cpci3u_board_write(struct file *filp, const char __user *bu
 		} else {
 			res = -EPERM;
 		}
-	} else if (sscanf(cmd, "dma.start(%u)", &value) == 1) {
+	} else if (sscanf(private_data->buff, "dma.start(%u)", &value) == 1) {
 		if (board->dma_run) {
 			spin_unlock_irqrestore(&board->lock, flags);
 			res = wait_event_interruptible_timeout(board->dma_waitq, board->dma_run == 0, HZ * 2);
@@ -766,24 +770,24 @@ static ssize_t adc7k_cpci3u_board_write(struct file *filp, const char __user *bu
 		board->dma_timer.expires = jiffies + HZ;
 		add_timer(&board->dma_timer);
 		res = len;
-	} else if (strstr(cmd, "ddr.reset()")) {
+	} else if (strstr(private_data->buff, "ddr.reset()")) {
 		adc7k_cpci3u_board_reset_ddr(board);
 		res = len;
-	} else if (strstr(cmd, "board.reset()")) {
+	} else if (strstr(private_data->buff, "board.reset()")) {
 		adc7k_cpci3u_board_reset_all(board);
 		res = len;
-	} else if (strstr(cmd, "adc.reset()")) {
+	} else if (strstr(private_data->buff, "adc.reset()")) {
 		adc7k_cpci3u_board_adc_reset(board);
 		res = len;
-	} else if (sscanf(cmd, "adc.write(0x%x,0x%x)", &value, &value2) == 2) {
+	} else if (sscanf(private_data->buff, "adc.write(0x%x,0x%x)", &value, &value2) == 2) {
 		spin_unlock_irqrestore(&board->lock, flags);
 		adc7k_cpci3u_board_adc_write(board, value, value2);
 		spin_lock_irqsave(&board->lock, flags);
 		res = len;
-	} else if (sscanf(cmd, "registers.show(%u)", &value) == 1) {
+	} else if (sscanf(private_data->buff, "registers.show(%u)", &value) == 1) {
 		board->reg_page_show = value;
 		res = len;
-	} else if (sscanf(cmd, "register[%u].write(0x%x)", &value, &value2) == 2) {
+	} else if (sscanf(private_data->buff, "register[%u].write(0x%x)", &value, &value2) == 2) {
 		adc7k_cpci3u_board_write_reg(board, value, value2);
 		res = len;
 	} else {
@@ -796,12 +800,40 @@ adc7k_cpci3u_board_write_end:
 	return res;
 }
 
+static loff_t adc7k_cpci3u_board_llseek(struct file *filp, loff_t off, int whence)
+{
+	loff_t res;
+	struct adc7k_cpci3u_board_private_data *private_data = filp->private_data;
+
+	switch (whence) {
+		case 0: /* SEEK_SET */
+			res = off;
+			break;
+		case 1: /* SEEK_CUR */
+			res = private_data->f_pos + off;
+			break;
+		case 2: /* SEEK_END */
+			res = private_data->length + off;
+			break;
+		default: /* can't happen */
+			res = -EINVAL;
+	}
+	if (res < 0) {
+		res = -EINVAL;
+	} else {
+		private_data->f_pos = res;
+	}
+
+	return res;
+}
+
 static struct file_operations adc7k_cpci3u_board_fops = {
 	.owner   = THIS_MODULE,
 	.open    = adc7k_cpci3u_board_open,
 	.release = adc7k_cpci3u_board_release,
 	.read    = adc7k_cpci3u_board_read,
 	.write   = adc7k_cpci3u_board_write,
+	.llseek   = adc7k_cpci3u_board_llseek,
 };
 
 static int adc7k_cpci3u_channel_open(struct inode *inode, struct file *filp)

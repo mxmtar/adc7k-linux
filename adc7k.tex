@@ -1,0 +1,348 @@
+\documentclass[a4paper]{article}
+\usepackage[T1,T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english,russian]{babel}
+\righthyphenmin=2
+
+\title{Модули ядра Linux для поддержки плат ADC7K\\adc7k-linux-1.0}
+\author{Максим Тарасевич}
+\date{Polygator --- 2016}
+
+\begin{document}
+
+
+\maketitle
+
+\newpage
+\tableofcontents
+
+\newpage
+\section{Введение}
+
+Данный документ содержит информацию о сборке, установке и работе с
+модулями для поддержки плат ADC7K в операционных системах на базе ядра Linux.
+
+\section{Сборка}
+
+Перед сборкой модулей необходимо установить утилиты make, gcc и заголовочные
+файлы ядра linux.
+В дистрибутивах на базе RedHat
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ yum install make gcc kernel-devel
+\end{verbatim}\end{small}
+или
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ dnf install make gcc kernel-devel
+\end{verbatim}\end{small}
+В дистрибутивах на базе Debian
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ apt-get install make gcc linux-headers-`uname -r`
+\end{verbatim}\end{small}
+
+Далее в рабочей директории размещаем архивный файл \mbox{\texttt{adc7k-linux-1.0.tar.gz}}
+с исходными кодами модулей и распаковываем его
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~ $ tar xzf adc7k-linux-1.0.tar.gz
+\end{verbatim}\end{small}
+и переходим в директорию
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~ $ cd adc7k-linux-1.0
+\end{verbatim}\end{small}
+которая содержит следующие файлы
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux-1.0 $ ls -l
+total 100
+-rw-r--r-- 1 adc7k adc7k  1253 Sep 12 10:21 Makefile
+drwxr-xr-x 2 adc7k adc7k  4096 Sep 12 10:21 adc7k
+-rw-r--r-- 1 adc7k adc7k 14817 Sep 12 10:21 adc7k-base.c
+-rw-r--r-- 1 adc7k adc7k 39068 Sep 12 10:21 adc7k-cpci3u-base.c
+-rw-r--r-- 1 adc7k adc7k 17371 Sep 12 10:21 adc7k-pseudo-base.c
+-rw-r--r-- 1 adc7k adc7k    75 Sep 12 10:21 adc7k-udev.rules
+drwxr-xr-x 2 adc7k adc7k  4096 Sep 12 10:21 scripts
+adc7k@adc7k ~/adc7k-linux-1.0 $
+\end{verbatim}\end{small}
+
+Сборку модулей производим выполненем команды \texttt{make} в текущей директории.
+Здесь мы можем убедится в наличии всех инструментов и заголовочных файлов ядра
+linux текущей версии необходмых для сборки. В следующем примере показан вывод
+команды в случае успешной сборки.
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ make
+make[1]: Entering directory '/usr/src/linux-headers-3.16.0-4-586'
+  CC [M]  /home/adc7k/adc7k-linux/adc7k-base.o
+  LD [M]  /home/adc7k/adc7k-linux/adc7k.o
+  CC [M]  /home/adc7k/adc7k-linux/adc7k-cpci3u-base.o
+  LD [M]  /home/adc7k/adc7k-linux/adc7k-cpci3u.o
+  CC [M]  /home/adc7k/adc7k-linux/adc7k-pseudo-base.o
+  LD [M]  /home/adc7k/adc7k-linux/adc7k-pseudo.o
+  Building modules, stage 2.
+  MODPOST 3 modules
+  CC      /home/adc7k/adc7k-linux/adc7k-cpci3u.mod.o
+  LD [M]  /home/adc7k/adc7k-linux/adc7k-cpci3u.ko
+  CC      /home/adc7k/adc7k-linux/adc7k-pseudo.mod.o
+  LD [M]  /home/adc7k/adc7k-linux/adc7k-pseudo.ko
+  CC      /home/adc7k/adc7k-linux/adc7k.mod.o
+  LD [M]  /home/adc7k/adc7k-linux/adc7k.ko
+make[1]: Leaving directory '/usr/src/linux-headers-3.16.0-4-586'
+adc7k@adc7k ~/adc7k-linux $
+\end{verbatim}\end{small}
+
+\section{Установка}
+\subsection{Установка модулей}
+
+Для установки модулей применяем в текущей директории команду
+\mbox{\texttt{make install}}. Для выполнения данной команды необходимы права
+суперпользователя. В примере используется команда \texttt{sudo}.
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ sudo make install
+make[1]: Entering directory `/usr/src/linux-headers-3.16.0-4-586'
+  INSTALL /home/adc7k/adc7k-linux/adc7k-cpci3u.ko
+  INSTALL /home/adc7k/adc7k-linux/adc7k-pseudo.ko
+  INSTALL /home/adc7k/adc7k-linux/adc7k.ko
+  DEPMOD  3.16.0-4-586
+make[1]: Leaving directory '/usr/src/linux-headers-3.16.0-4-586'
+install -m 755 -d "/usr/include/adc7k"
+for header in adc7k/*.h ; do \
+	install -m 644 $header "/usr/include/adc7k" ; \
+done
+adc7k@adc7k ~/adc7k-linux $
+\end{verbatim}\end{small}
+
+В результате мы видим, что модули находятся в директории библиотек, которые
+соответствуют версии ядра linux, для которой мы производили сборку.
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ ls -l /lib/modules/`uname -r`/adc7k
+total 60
+-rw-r--r-- 1 root root 27024 Sep 12 10:28 adc7k-cpci3u.ko
+-rw-r--r-- 1 root root 14904 Sep 12 10:28 adc7k-pseudo.ko
+-rw-r--r-- 1 root root 14892 Sep 12 10:28 adc7k.ko
+adc7k@adc7k ~/adc7k-linux $
+\end{verbatim}\end{small}
+
+Файл модуля \mbox{\texttt{adc7k.ko}} является базовым и предназначен для
+регистрации подсистемы \texttt{adc7k} в ядре linux. Модуль \mbox{\texttt{adc7k-cpci3u.ko}}
+предназначен для обслуживания плат ADC7K \mbox{CompactPCI-3U} и зависит от \mbox{\texttt{adc7k.ko}}.
+В модуле \mbox{\texttt{adc7k-pseudo.ko}} реализовано псевдоустройство, которое
+предназначено для отработки программного обеспечения с одинаковым интерфейсом, на
+уровне апаратной абстракции, как и у плат ADC7K \mbox{CompactPCI-3U}. Это может быть удобным в случае
+невозможности установки плат ADC7K на машине разработчика функционального программного обеспечения.
+Модуль \mbox{\texttt{adc7k-pseudo.ko}} также зависит от \mbox{\texttt{adc7k.ko}}.
+Немного выше мы могли видеть, выполняя команду установки модулей, операцию
+\mbox{\texttt{DEPMOD  3.16.0-4-586}}. Эта операция формирует карту зависимостей между
+модулями, а также, в часности для устройств PCI, сопоставляет идентификатору устройства модуль
+который его обслуживает. Это дает возможность системе автоматически подгружать зависимые модули как при
+ручной загрузке модуля, так и автоматически при запуске операционной системы.
+
+К сожалению не все скрипты установки, показывая операцию {\texttt{DEPMOD}}, её на самом деле проводят.
+Поэтому данную операцию необходимо произвести вручную. Она также требует права суперпользователя.
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ sudo depmod
+\end{verbatim}\end{small}
+
+На данном этапе модули установлены и готовы к загрузке.
+
+\subsection{Расширение прав доступа к файлам устройств}
+
+Необходимо заметить, что по умолчанию модули предоставляют
+доступ (через файлы устройств) к своим подсистемам только суперпользователю.
+Для обеспечения доступа к устройствам ADC7K всех пользователей, необходимо добавить
+правила для подсистемы ядра \texttt{udev}, которые динамически изменяют права
+доступа к файлам устройств при их регистрации в виртуальной файловой системе.
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~/adc7k-linux $ sudo make install_udev_rules
+\end{verbatim}\end{small}
+
+\subsection{Настройка параметров ядра linux}
+
+Для устройства ADC7K необходим достаточно большой, физически
+непрерывный блок оперативной памяти, который невозможно выделить стандартными
+средствами ядра linux в процесе работы, но возможно зарезервировать при старте ядра.
+По умолчанию модуль \texttt{adc7k-cpci3u.ko} запрашивает память 16MiB начиная с
+адреса 256M \texttt{(0x10000000-0x10ffffff)}. Для удовлетворения этого условия
+мы должны отметить этот диапазон как зарезервированый и заблокировать его от использования
+ядром linux, задав параметр ядра \texttt{memmap=16M$\backslash$\$256M}, где первое значение
+указывает размер блока резервируемой памяти, а вторая начальный адрес.
+Для установки данного параметра ищем в файле настроек загрузчика операционной системы
+строку загрузки ядра и добавляем требуемый нами параметр в конец строки.
+В примере строка из конфигурационного файла загрузчика GRUB
+\\\\до редактирования
+\begin{small}\begin{verbatim}
+linux /vmlinuz-3.16.0-4-586 root=UUID=0da944c4-eb6c-4fe5-86d6-6aa6d3543db1
+ro quiet splash
+\end{verbatim}\end{small}
+и после редактирования
+\begin{small}\begin{verbatim}
+linux /vmlinuz-3.16.0-4-586 root=UUID=0da944c4-eb6c-4fe5-86d6-6aa6d3543db1
+ro quiet splash memmap=16M\$256M
+\end{verbatim}\end{small}
+
+\subsection{Завершение установки}
+
+Выполнив все необходимые операции для установки модулей, мы можем перезагрузить
+операционную систему и, в случае наличия плат ADC7K \mbox{CompactPCI-3U}, модули
+загрузятся автоматически.
+
+\section{Порядок работы}
+
+В этом разделе мы рассмотрим порядок использования модулей ядра linux для обнаружения,
+управления и получения данных с плат ADC7K \mbox{CompactPCI-3U}.
+
+\subsection{Загрузка модулей}
+
+Как было упомянуто в предыдущем разделе, после установки модулей и при наличии
+в системе плат ADC7K \mbox{CompactPCI-3U}, загрузка модулей происходит автоматически.
+
+Здесь мы рассмотрим порядок ручной загрузки модулей.
+
+Для загрузки модулей в ядро linux необходимо выполнить команду \texttt{modprobe adc7k-cpci3u}.
+В результате выполнения команды будет просмотрена карта зависимостей модулей в
+которой будет обнаружена зависисмость модуля adc7k-cpci3u от adc7k и произойдет
+загрузка модулей, сначала adc7k, а затем adc7k-cpci3u.
+
+\subsection{Просмотр поддерживаемых устройств}
+
+Модуль adc7k регистрирует в ядре подсистему которая обеспечивает регистрацию
+устройств в виртуальной файловой системе. Доступ пользователей к этой подсистеме
+осуществляется через файл устройства \texttt{/dev/adc7k/subsystem}. Для данного
+файла реализована толь одна операция --- операция чтения, в результате которой
+мы получаем объект в формате JSON. Данный объект содержит только один элемент ---
+массив ''boards''. В этом массиве перечислены все платы, которые зарегистрированы
+подсистемой adc7k. Поскольку формат JSON текстовый, мы можем вывести содержимое
+файла подсистемы в терминале. Здесь и далее мы производим доступ к файлам
+устройств права доступа которых расширены для всех пользователей.
+Вывод подсистемы не содержащей плат ADC7K
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~ $ cat /dev/adc7k/subsystem
+{
+    "boards": [
+    ]
+}
+adc7k@adc7k ~ $
+\end{verbatim}\end{small}
+Зарегистрирована одна плата ADC7K \mbox{CompactPCI-3U}
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~ $ cat /dev/adc7k/subsystem
+{
+    "boards": [
+        {
+            "driver": "adc7k_cpci3u",
+            "path": "adc7k!board-cpci3u-03-09-0"
+        }
+    ]
+}
+adc7k@adc7k ~ $
+\end{verbatim}\end{small}
+Элемент массива ''boards'' также является JSON-объектом и, в свою очередь,
+содержит два элемента ''driver'' и ''path''. Значение элемента ''driver''
+содержит имя модуля, который облуживает данную плату. А в значении элемента
+''path'' указан путь к файлу устройства управления и мониторинга платы. Как можно
+заметить данный путь не является путем к файлу в стиле UNIX и для непосредственного
+использования его необходимо модифицировать. В исходном значении пути необходимо
+заменить все символы '\texttt{!}' на '\texttt{/}' и добавить префикс
+\texttt{/dev/}. В результате, для значения пути из примера, получим
+\texttt{/dev/adc7k/board-cpci3u-03-09-0}.
+
+Тепер, когда мы знаем путь к файлу устройства интересуемой нас платы, можем
+посмотреть информацию которую содержит файл данной платы. Выводим
+содержимое файла в терминале
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~ $ cat /dev/adc7k/board-cpci3u-03-09-0
+{
+    "type": "CompactPCI-3U",
+    "sampler": {
+        "rate": 50000000,
+        "length": 1048576,
+        "max_length": 1048576,
+        "divider": 0
+    },
+    "channels": [
+        {
+            "name": "12",
+            "path": "adc7k!board-cpci3u-03-09-0-channel-12",
+            "transactions": 283912,
+            "buffer": {
+                "address": 268435456,
+                "size": 4194304
+            }
+        },
+        {
+            "name": "34",
+            "path": "adc7k!board-cpci3u-03-09-0-channel-34",
+            "transactions": 283912,
+            "buffer": {
+                "address": 272629760,
+                "size": 4194304
+            }
+        },
+        {
+            "name": "56",
+            "path": "adc7k!board-cpci3u-03-09-0-channel-56",
+            "transactions": 283912,
+            "buffer": {
+                "address": 276824064,
+                "size": 4194304
+            }
+        },
+        {
+            "name": "78",
+            "path": "adc7k!board-cpci3u-03-09-0-channel-78",
+            "transactions": 283912,
+            "buffer": {
+                "address": 281018368,
+                "size": 4194304
+            }
+        }
+    ]
+}
+adc7k@adc7k ~ $
+\end{verbatim}\end{small}
+Прочитаный объект JSON содержит три элемента. Первый элемент строковый ''type''
+носит информационный характер и содержит название типа платы. Второй элемент ---
+объект ''sampler''. И третий элемент --- массив объектов ''channels''. В объекте
+''sampler'' содержится информация о частоте дискретизации --- ''rate'', текущей и
+максимальной длине выборки --- ''length'' и ''max\_length'' соответственно и
+параметр прореживания данных ''divider''. В элементе массива ''channels'' содержится
+объект с информацией о канале платы, точнее о двухканальной группе. Элемент ''name''
+содержит имя канала, ''path'' --- путь к файлу устройства, ''transactions'' ---
+количество DMA-транзакций данных канала и ''buffer'' --- объект содержащий адрес
+(''address'') и размер (''size'') буфера DMA. Пути файлов устройств каналов для
+практического применения также необходимо модифицировать как и путь файла устройства
+платы.
+
+\subsection{Управление платой ADC7K CompactPCI-3U}
+
+Управление платой ADC7K \mbox{CompactPCI-3U} осуществляется записью команд в
+файл устройства соответствующей платы. Команда представляет собой символьную строку.
+За один цикл открытия/закрытия файла можно передать одну команду.
+Далее приведен перечень доступных команд:
+\begin{itemize}
+\item[--] sampler.start(mode) - запуск процесса оцифровки и передачи данных.
+где при mode=0 --- одиночный запуск, mode=1 --- непрерывный процесс.
+\item[--] sampler.stop() - остановить непрерывный процесс оцифровки и передачи данных.
+\item[--] sampler.length(value) - установить длину данных единичной выборки. где \(1 \leq value \leq max\_length\).
+\item[--] sampler.divider(value) - установить параметр прореживания данных. где \(0 \leq value \leq 255\).
+\item[--] board.reset() - сброс платы (при инициализации устройства подается автоматически).
+\item[--] ddr.reset() - сброс контроллера DDR памяти (при инициализации устройства подается автоматически).
+\item[--] adc.reset() - сброс АЦП (при инициализации устройства подается автоматически).
+\item[--] adc.write(addr,data) - запись в регистры управления АЦП. где addr=0xXX --- адрес регистра, data=0xYYYY --- данные.
+\end{itemize}
+
+Перечисленные выше команды можно подавать как программно так и из терминала или запуская скрипт оболчки.
+Пример сброса платы из командной строки
+\begin{small}\begin{verbatim}
+adc7k@adc7k ~ $ cat >> /dev/adc7k/board-cpci3u-03-09-0 << EOF
+board.reset()
+EOF
+adc7k@adc7k ~ $
+\end{verbatim}\end{small}
+
+\subsection{Чтение данных}
+
+Данные, получаемые в процесе оцифровки, можно прочитать из файла устройства канала.
+Операции чтения работают как в блокирующем так и неблокирующем режиме.
+Для этих файлов также доступны функции отображения данных буферов DMA в пространнстве
+пользователя, что полностью устраняет копирование данных.
+Одну из реализаций процедуры чтения данных (неблокирующий режим, отображение буфера DMA)
+можно посмотреть в программе демонстраторе.
+
+\end{document}

@@ -32,12 +32,6 @@ static int major = 0;
 module_param(major, int, 0);
 MODULE_PARM_DESC(major, "Major number for ADC7K subsystem device");
 
-EXPORT_SYMBOL(adc7k_board_register);
-EXPORT_SYMBOL(adc7k_board_unregister);
-EXPORT_SYMBOL(adc7k_channel_register);
-EXPORT_SYMBOL(adc7k_channel_unregister);
-EXPORT_SYMBOL(adc7k_channel_number_to_string);
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
 	#define CLASS_DEV_CREATE(_class, _devt, _device, _name) device_create(_class, _device, _devt, NULL, "%s", _name)
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
@@ -73,8 +67,9 @@ EXPORT_SYMBOL(adc7k_channel_number_to_string);
 #define debug(_fmt, _args...) printk(KERN_DEBUG "[%s] %s:%d - %s(): " _fmt, THIS_MODULE->name, "adc7k-base.c", __LINE__, __PRETTY_FUNCTION__, ## _args)
 
 struct adc7k_subsystem_private_data {
-	char buff[0x8000];
+	char buff[0xc000];
 	size_t length;
+	loff_t f_pos;
 };
 
 static struct cdev adc7k_subsystem_cdev;
@@ -146,16 +141,16 @@ static ssize_t adc7k_subsystem_read(struct file *filp, char __user *buff, size_t
 	ssize_t res;
 	struct adc7k_subsystem_private_data *private_data = filp->private_data;
 
-	res = (private_data->length > filp->f_pos)?(private_data->length - filp->f_pos):(0);
+	res = (private_data->length > private_data->f_pos) ? (private_data->length - private_data->f_pos) : (0);
 
 	if (res) {
 		len = res;
 		len = min(count, len);
-		if (copy_to_user(buff, private_data->buff + filp->f_pos, len)) {
+		if (copy_to_user(buff, private_data->buff + private_data->f_pos, len)) {
 			res = -EINVAL;
 			goto adc7k_subsystem_read_end;
 		}
-		*offp = filp->f_pos + len;
+		private_data->f_pos += len;
 	}
 
 adc7k_subsystem_read_end:
@@ -257,6 +252,7 @@ adc7k_board_register_error:
 	}
 	return NULL;
 }
+EXPORT_SYMBOL(adc7k_board_register);
 
 void adc7k_board_unregister(struct adc7k_board *board)
 {
@@ -278,6 +274,7 @@ void adc7k_board_unregister(struct adc7k_board *board)
 	}
 	mutex_unlock(&adc7k_board_list_lock);
 }
+EXPORT_SYMBOL(adc7k_board_unregister);
 
 struct adc7k_channel *adc7k_channel_register(struct module *owner, struct adc7k_board *board, char *name, struct cdev *cdev, struct file_operations *fops)
 {
@@ -367,6 +364,7 @@ adc7k_channel_register_error:
 	}
 	return NULL;
 }
+EXPORT_SYMBOL(adc7k_channel_register);
 
 void adc7k_channel_unregister(struct adc7k_board *board, struct adc7k_channel *channel)
 {
@@ -388,6 +386,7 @@ void adc7k_channel_unregister(struct adc7k_board *board, struct adc7k_channel *c
 	}
 	mutex_unlock(&adc7k_board_list_lock);
 }
+EXPORT_SYMBOL(adc7k_channel_unregister);
 
 const char *adc7k_channel_number_to_string(size_t num)
 {
@@ -399,6 +398,7 @@ const char *adc7k_channel_number_to_string(size_t num)
 		default: return "xx";
 	}
 }
+EXPORT_SYMBOL(adc7k_channel_number_to_string);
 
 static int __init adc7k_init(void)
 {
