@@ -92,6 +92,7 @@ static int adc7k_subsystem_open(struct inode *inode, struct file *filp)
 		res = -ENOMEM;
 		goto adc7k_subsystem_open_error;
 	}
+	private_data->f_pos = 0;
 
 	mutex_lock(&adc7k_board_list_lock);
 	len = 0;

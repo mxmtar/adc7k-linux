@@ -600,6 +600,7 @@ static int adc7k_cpci3u_board_open(struct inode *inode, struct file *filp)
 		res = -ENOMEM;
 		goto adc7k_cpci3u_board_open_error;
 	}
+	private_data->f_pos = 0;
 	private_data->board = board;
 
 	len = 0;
@@ -662,7 +663,7 @@ static ssize_t adc7k_cpci3u_board_read(struct file *filp, char __user *buff, siz
 	struct adc7k_cpci3u_board_private_data *private_data = filp->private_data;
 	struct adc7k_cpci3u_board *board = private_data->board;
 
-	if (private_data->f_pos < 0x80000000) {
+	if (private_data->f_pos < 0x80000) {
 		res = (private_data->length > private_data->f_pos) ? (private_data->length - private_data->f_pos) : (0);
 		if (res) {
 			len = res;

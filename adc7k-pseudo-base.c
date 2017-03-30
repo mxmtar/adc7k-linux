@@ -134,6 +134,7 @@ static int adc7k_pseudo_board_open(struct inode *inode, struct file *filp)
 		res = -ENOMEM;
 		goto adc7k_pseudo_board_open_error;
 	}
+	private_data->f_pos = 0;
 	private_data->board = board;
 
 	len = 0;
